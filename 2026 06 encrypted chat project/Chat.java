@@ -1,5 +1,8 @@
 // except the default constructors(generated probably by vscode copilot by default on vscode), 0 lines of code in this file have been written by LLMs (for safety purposes)
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -8,15 +11,25 @@ import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.Key;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.SecureRandom;
+import java.security.Signature;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
+import java.time.format.SignStyle;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -34,7 +47,7 @@ import javax.crypto.spec.GCMParameterSpec;
     plan:
     - integrity/privacy: AES-GCM with keys calculated using ECDH
     - auth: X.509 certificate (for the demo they are self signed)
-    - forward secrecy: ECDH ephimeral session keys
+    - forward secrecy: ECDH ephimeral session keys(with NIST approved elliptic curve)
     - replay attack prevention: sequence numbers inside AAD and IV(init vector) = seed + counter
 */
 public class Chat{
@@ -70,11 +83,68 @@ public class Chat{
             //TODO (maybe): ask user to insert keys manually at every app launch and remove them from config.
             // or ask the user for passwords if they are not included in the config file
             //maybe it should ask the users for all the configs that are not included in the file 
-            KeysStorage infosForHandshake = KeysStorage.loadFromFile(config.keysPath, config.keysStoragePass,config.privateKeyPass,config.alias);
+            KeysStorage keysStorage = KeysStorage.loadFromFile(config.keysPath, config.keysStoragePass,config.privateKeyPass,config.alias);
             
             //---step 2: create a safe channel inside the unsafe connection -> AES/GCM with sequence numbers
-            SecureChannel 
+            SecureChannel secureChannel = ;
         }
+    }
+
+    //this method performs the ECDH handshake and returns the secure channel
+    // secp256r1 = NIST P-256 elliptic curve
+    private SecureChannel handshake(Socket socket, KeysStorage localKeys, boolean ishost) throws Exception{
+        //ECDH key pair
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("EC");
+        keyPairGenerator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair ephPair = keyPairGenerator.generateKeyPair();
+
+        //payload
+        byte[] nonce = secureRandomBytes(32);
+        byte[] ephPubEncoded = ephPair.getPublic().getEncoded();
+        byte[] payloadToSign = concatByteArrays(ephPubEncoded, nonce);
+
+        //sign
+        String signatureAlg = signatureAlgFromKey(localKeys.privateKey);
+        Signature signFunction = Signature.getInstance(signatureAlg);
+        signFunction.initSign(localKeys.privateKey);
+        signFunction.update(payloadToSign);
+        byte[] signature = signFunction.sign();
+
+        HandshakeMessage outgoing = new HandshakeMessage(localKeys.certificate.getEncoded(), nonce, ephPubEncoded, signature, signatureAlg);
+
+        InputStream in = socket.getInputStream();
+        OutputStream out = socket.getOutputStream();
+        DataInputStream dataIn = new DataInputStream(new BufferedInputStream(in));
+        DataOutputStream dataOut = new DataOutputStream(new BufferedOutputStream(out));
+
+        HandshakeMessage incoming;
+
+        //sending payload
+        // host sends first and the other client replies
+        if(ishost){
+            outgoing.writeTo(dataOut);
+            dataOut.flush();
+            incoming = HandshakeMessage.readFrom(dataIn);
+        }else{
+            incoming = HandshakeMessage.readFrom(dataIn);
+            outgoing.writeTo(dataOut);
+            dataOut.flush();
+        }
+
+        // certificates validation
+        CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+        X509Certificate peerCert = (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(incoming.certificateBytes));
+        peerCert.checkValidity();
+
+        //signature validation 
+        Signature verifier = Signature.getInstance(incoming.signatureAlgorithm);
+        verifier.initVerify(peerCert);
+        verifier.update(concatByteArrays(incoming.ephemeralPublicKey,incoming.nonce)); //pub key concatenated with nonce
+        if(!verifier.verify(incoming.signature)){
+            throw new GeneralSecurityException("[ERROR] Peer signature verification failed (STACCA STACCA CI STANNO TRACCIANDO)");
+        }
+        
+        return null;
     }
     
     public static void main(String[] args) throws Exception{
@@ -84,6 +154,7 @@ public class Chat{
         Config config = Config.loadFromFile("config.properties");
 
         // end to end basic socket connection opening
+        new Chat(config).startChat(config);
         
     }
 
@@ -228,7 +299,7 @@ public class Chat{
             try{ out.close(); }catch(IOException ignored){}
         }
 
-        //helper methods
+        //secure channel helper methods
 
         //it compose the init vector
         // IV = seed || counter
@@ -245,4 +316,84 @@ public class Chat{
         }
     }
 
+    //serializable handshake to exchange cert + nonce + epheemeral key
+    private static final class HandshakeMessage{
+        final byte[] certificateBytes;
+        final byte[] nonce;
+        final byte[] ephemeralPublicKey;
+        final byte[] signature;
+        final String signatureAlgorithm;
+
+        public HandshakeMessage(byte[] certificateBytes, byte[] nonce, byte[] ephemeralPublicKey, byte[] signature, String signatureAlgorithm) {
+            this.certificateBytes = certificateBytes;
+            this.nonce = nonce;
+            this.ephemeralPublicKey = ephemeralPublicKey;
+            this.signature = signature;
+            this.signatureAlgorithm = signatureAlgorithm;
+        }
+
+        void writeTo(DataOutputStream out) throws IOException{
+            writeBytes(out, certificateBytes);
+            writeBytes(out, nonce);
+            writeBytes(out, ephemeralPublicKey);
+            writeBytes(out, signature);
+            out.writeUTF(signatureAlgorithm);
+        }
+
+        //receives data from the writeTo
+        static HandshakeMessage readFrom(DataInputStream in) throws IOException{
+            byte[] c = readBytes(in);
+            byte[] n = readBytes(in);
+            byte[] e = readBytes(in);
+            byte[] s = readBytes(in);
+            String a = in.readUTF();
+            return new HandshakeMessage(c, n, e, s, a);
+        }
+
+        private static void  writeBytes(DataOutputStream out, byte[] data) throws IOException {
+            out.writeInt(data.length);
+            out.write(data);
+        }
+
+        private static byte[] readBytes(DataInputStream in) throws IOException{
+            int len = in.readInt();
+            byte[] b = new byte[len];
+            in.readFully(b);
+            return b;
+        }
+
+        
+    }
+
+    // helper methods
+    private static byte[] secureRandomBytes(int length) throws NoSuchAlgorithmException{
+        byte[] data = new byte[length];
+        SecureRandom.getInstanceStrong().nextBytes(data);
+        return data;
+    }
+
+    private static byte[] concatByteArrays(byte[]... arrays){
+        int len = 0;
+        for(byte[] arr: arrays){
+            len += arr.length;
+        }
+        byte[] result = new byte[len];
+        int pos = 0;
+        for(byte[] arr: arrays){
+            System.arraycopy(arr, 0, result, pos, arr.length);
+            pos+=arr.length;
+        }
+        return result;
+    }
+
+    //TODO update to sha-3 if decently compatible
+    private static String signatureAlgFromKey(Key k){
+        String alg = k.getAlgorithm();
+        if("RSA".equalsIgnoreCase(alg)){
+            return "SHA256withRSA";
+        }else if("EC".equalsIgnoreCase(alg)){
+            return "SHA256withECDSA";
+        }
+        throw new IllegalArgumentException("[ERROR] unsupported key algorithm:" + alg);
+    }
 }
