@@ -2,6 +2,7 @@
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
@@ -11,6 +12,7 @@ import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -35,6 +37,8 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.format.SignStyle;
 import java.util.Arrays;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.crypto.Cipher;
@@ -93,7 +97,43 @@ public class Chat{
             KeysStorage keysStorage = KeysStorage.loadFromFile(config.keysPath, config.keysStoragePass,config.privateKeyPass,config.alias);
             
             //---step 2: create a safe channel inside the unsafe connection -> AES/GCM with sequence numbers
-            SecureChannel secureChannel = ;
+            SecureChannel secureChannel = handshake(socket, keysStorage, config.host.equalsIgnoreCase("host"));
+        
+            //---step 3:start chat inside secure channel
+            //one thread for receiving and one thread for sending so that both can be done simultaneously
+            ExecutorService exec = Executors.newFixedThreadPool(2);
+
+            // Sender thread
+            exec.submit(() -> {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.equalsIgnoreCase("/quit")) {
+                            secureChannel.close();
+                            break;
+                        }
+                        secureChannel.send(line);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Send error: " + e.getMessage());
+                }
+            });
+
+            // Receiver thread
+            exec.submit(() -> {
+                try {
+                    String msg = "";
+                    while (true){
+                        secureChannel.receive(msg);
+                        if(msg==null) System.out.println("[peer] " + msg);
+                        else break;
+                    }; 
+                } catch (Exception e) {
+                    System.err.println("Receive error: " + e.getMessage());
+                } finally {
+                    secureChannel.close();
+                }
+            });
         }
     }
 
@@ -197,7 +237,7 @@ public class Chat{
         System.out.println("[INFO] Local signature algorithm: " + signatureAlg);
         System.out.println("[INFO] Peer certificate: " + peerCert.getSubjectX500Principal());
         System.out.println("[INFO] Symmetric channel: AES/GCM/NoPadding");
-        
+
         return new SecureChannel(dataIn, dataOut, sendKey, recvKey, sendIvSeed, recvIvSeed);
     }
     
