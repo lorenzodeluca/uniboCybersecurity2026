@@ -14,4 +14,4 @@ REM -storepass   -> password to protect the entire keystore
 REM -keypass     -> password specific to the private key (can differ from storepass)
 REM -dname 	 -> Distinguished Name inserted into the certificate
 
-keytool -genkeypair -alias client -keyalg RSA -keysize 4096  -keystore keystore.p12 -storetype PKCS12 -storepass %PASS% -keypass %PASS% -dname "CN=Server, OU=Lab, O=Uni, L=Bologna, ST=BO, C=IT"
+keytool -genkeypair -alias server -keyalg RSA -keysize 4096  -keystore keystore.p12 -storetype PKCS12 -storepass %PASS% -keypass %PASS% -dname "CN=Server, OU=Lab, O=Uni, L=Bologna, ST=BO, C=IT"
