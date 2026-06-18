@@ -197,7 +197,8 @@ public class Chat{
         System.out.println("[INFO] Local signature algorithm: " + signatureAlg);
         System.out.println("[INFO] Peer certificate: " + peerCert.getSubjectX500Principal());
         System.out.println("[INFO] Symmetric channel: AES/GCM/NoPadding");
-        return null;
+        
+        return new SecureChannel(dataIn, dataOut, sendKey, recvKey, sendIvSeed, recvIvSeed);
     }
     
     public static void main(String[] args) throws Exception{
