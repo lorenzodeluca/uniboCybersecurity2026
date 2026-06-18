@@ -1,4 +1,4 @@
-// except the default constructors(generated probably by vscode copilot by default on vscode), 0 lines of code in this file have been written by LLMs (for safety purposes)
+// except the default constructors and some standard helper function code(generated probably by vscode copilot by default on vscode), 0 lines of code in this file have been written by LLMs (for safety purposes)
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -18,24 +18,31 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.Key;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.ECGenParameterSpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.format.SignStyle;
+import java.util.Arrays;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyAgreement;
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 /*
     PROJECT:
@@ -143,7 +150,53 @@ public class Chat{
         if(!verifier.verify(incoming.signature)){
             throw new GeneralSecurityException("[ERROR] Peer signature verification failed (STACCA STACCA CI STANNO TRACCIANDO)");
         }
-        
+
+        //rebuilding the EC public key from the X509 encoded form
+        KeyFactory kf = KeyFactory.getInstance("EC");
+        PublicKey peerEphPublic = kf.generatePublic(new X509EncodedKeySpec(incoming.ephemeralPublicKey));
+
+        // Compute ECDH shared secret
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("ECDH");
+        keyAgreement.init(ephPair.getPrivate());
+        keyAgreement.doPhase(peerEphPublic, true);
+        byte[] sharedSecret = keyAgreement.generateSecret();
+
+        byte[] info;
+        if(ishost){
+            info =concatByteArrays("SecureChat-v1".getBytes(StandardCharsets.UTF_8),nonce,incoming.nonce);
+        }else{
+            info =concatByteArrays("SecureChat-v1".getBytes(StandardCharsets.UTF_8),incoming.nonce, nonce);
+        }
+
+        //calculating keying material: each client has key+IV seed
+        byte[] keyMaterial = hkdf(sharedSecret, null, info, 80);//32+8 + 32+8
+        byte[] serverKeyBytes = Arrays.copyOfRange(keyMaterial, 0, 32);
+        byte[] serverIvSeed = Arrays.copyOfRange(keyMaterial, 32, 40);
+        byte[] clientKeyBytes = Arrays.copyOfRange(keyMaterial, 40, 72);
+        byte[] clientIvSeed = Arrays.copyOfRange(keyMaterial, 72, 80);
+
+        SecretKeySpec sendKey;
+        SecretKeySpec recvKey;
+        byte[] sendIvSeed;
+        byte[] recvIvSeed;
+
+        // Map derived material to local send/receive directions
+        if (ishost) {
+            sendKey = new SecretKeySpec(serverKeyBytes, "AES");
+            sendIvSeed = serverIvSeed;
+            recvKey = new SecretKeySpec(clientKeyBytes, "AES");
+            recvIvSeed = clientIvSeed;
+        } else {
+            sendKey = new SecretKeySpec(clientKeyBytes, "AES");
+            sendIvSeed = clientIvSeed;
+            recvKey = new SecretKeySpec(serverKeyBytes, "AES");
+            recvIvSeed = serverIvSeed;
+        }
+
+        System.out.println("[INFO] Handshake complete.");
+        System.out.println("[INFO] Local signature algorithm: " + signatureAlg);
+        System.out.println("[INFO] Peer certificate: " + peerCert.getSubjectX500Principal());
+        System.out.println("[INFO] Symmetric channel: AES/GCM/NoPadding");
         return null;
     }
     
@@ -365,7 +418,7 @@ public class Chat{
         
     }
 
-    // helper methods
+    // crypto helper methods
     private static byte[] secureRandomBytes(int length) throws NoSuchAlgorithmException{
         byte[] data = new byte[length];
         SecureRandom.getInstanceStrong().nextBytes(data);
@@ -396,4 +449,36 @@ public class Chat{
         }
         throw new IllegalArgumentException("[ERROR] unsupported key algorithm:" + alg);
     }
+
+    //HMAC -> for final eDH step
+    //HMAC-based Extract-and-Expand Key Derivation standard Function
+    private static byte[] hkdf(byte[] ikm, byte[] salt, byte[] info, int len) throws Exception {
+            if (salt == null) {
+                salt = new byte[32];
+            }
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(salt, "HmacSHA256"));
+            byte[] prk = mac.doFinal(ikm);
+
+            mac.init(new SecretKeySpec(prk, "HmacSHA256"));
+            byte[] result = new byte[len];
+            byte[] t = new byte[0];
+            int pos = 0;
+            int counter = 1;
+            while (pos < len) {
+                mac.reset();
+                mac.init(new SecretKeySpec(prk, "HmacSHA256"));
+                mac.update(t);
+                if (info != null) {
+                    mac.update(info);
+                }
+                mac.update((byte) counter++);
+                t = mac.doFinal();
+                int copyLen = Math.min(t.length, len - pos);
+                System.arraycopy(t, 0, result, pos, copyLen);
+                pos += copyLen;
+            }
+            return result;
+        }
+
 }
