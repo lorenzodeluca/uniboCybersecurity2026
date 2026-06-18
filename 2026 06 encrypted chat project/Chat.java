@@ -1,13 +1,27 @@
+// except the default constructors(generated probably by vscode copilot by default on vscode), 0 lines of code in this file have been written by LLMs (for safety purposes)
+
+import java.io.Closeable;
+import java.io.DataInputStream;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.Key;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicLong;
+
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 
 /*
     PROJECT:
@@ -48,8 +62,17 @@ public class Chat{
     private void startChat(Config config) throws Exception{
         try(Socket socket = connect()){
             System.out.println("[INFO] connected with " +  socket.getRemoteSocketAddress());
+            System.out.println("[INFO] ---STEP 1 completed: unsafe connection achieved---");
 
-            //handshake  
+            //handshake 
+            //alias = key alias
+            //TODO (maybe): ask user to insert keys manually at every app launch and remove them from config.
+            // or ask the user for passwords if they are not included in the config file
+            //maybe it should ask the users for all the configs that are not included in the file 
+            KeysStorage infosForHandshake = KeysStorage.loadFromFile(config.keysPath, config.keysStoragePass,config.privateKeyPass,config.alias);
+            
+            //---step 2: create a safe channel inside the unsafe connection -> AES/GCM with sequence numbers
+            SecureChannel 
         }
     }
     
@@ -63,6 +86,9 @@ public class Chat{
         
     }
 
+    //im saving all the data needed for this app in different classes because i plan to reuse the code as much as possible for both the client and host
+
+    //config file rappresentation
     private static final class Config{
         static String configFilePath = "config.properties";
         static String mode;
@@ -125,4 +151,67 @@ public class Chat{
             return new KeysStorage(key, (X509Certificate)cert);
         }
     }
+
+    // AES/GCM with sequence numbers
+    private static final class SecureChannel implements Closeable{
+        //in
+        private final DataInputStream in;
+        private final SecretKey recvKey;
+        private final byte[] recvSeed;
+        private final AtomicLong recvCounter = new AtomicLong(0);
+
+        //out
+        private final DataOutputStream out;
+        private final SecretKey sendKey;
+        private final byte[] sendSeed;
+        private final AtomicLong sendCounter = new AtomicLong(0);
+
+        //channel status
+        private volatile boolean closed = false;
+
+
+
+        SecureChannel(DataInputStream in, DataOutputStream out, SecretKey sendKey, SecretKey recvKey, byte[] sendSeed, byte[] recvSeed){
+              this.in = in;
+              this.out = out;
+              this.sendKey = sendKey;
+              this.recvKey = recvKey;
+              this.sendSeed = sendSeed;
+              this.recvSeed = recvSeed;
+        }
+
+        public synchronized void send(String message) throws Exception{
+            //preparing ciphertext
+            if(closed)return;
+            long counter = sendCounter.incrementAndGet(); //atomic counter
+            byte[] iv = buildIV(sendSeed, counter);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, sendKey, new GCMParameterSpec(128, iv));
+            cipher.updateAAD( longToBytes(counter) );
+            byte[] ciphertext = cipher.doFinal(message.getBytes(StandardCharsets.UTF_8));
+
+            //sending ciphertext
+            out.writeLong(counter);
+            out.writeInt(ciphertext.length);
+            out.write(ciphertext);
+            out.flush();
+        }
+
+        //helper methods
+
+        //it compose the init vector
+        // IV = seed || counter
+        private static byte[] buildIV(byte[] seed, long counter){
+            ByteBuffer bb = ByteBuffer.allocate(12);
+            bb.put(seed); //8bytes
+            bb.putInt((int)counter);//4bytes
+            return bb.array(); //total: 12bytes
+        }
+
+        //longToBytes
+        private static byte[] longToBytes(long value){
+            return ByteBuffer.allocate(8).putLong(value).array();
+        }
+    }
+
 }
