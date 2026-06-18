@@ -1,10 +1,69 @@
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.util.Properties;
 
+/*
+    PROJECT:
+    - end to end encrypted chat
+    - one user is the host/server, the other user connect as a client
+    - mutual certificates, ECDH, HKDF and AES/GCM.
+    - goals: integrity/auth/forward secrecy/replay attack resistency
+
+    plan:
+    - integrity/privacy: AES-GCM with keys calculated using ECDH
+    - auth: X.509 certificate (for the demo they are self signed)
+    - forward secrecy: ECDH ephimeral session keys
+    - replay attack prevention: sequence numbers inside AAD and IV(init vector) = seed + counter
+*/
 public class Chat{
-    public static final class Config{
+    private final Config config;
+
+    public Chat(Config c){
+        this.config = c;
+    }
+
+    
+
+    // open the socket in host mode or client mode
+    private Socket connect() throws IOException{
+        if(config.mode.equalsIgnoreCase("host")){
+            ServerSocket socket = new ServerSocket(config.port);
+            System.out.println("[INFO] listening on 0.0.0.0:" +  socket.getLocalPort());
+            return socket.accept();
+        }else if(config.mode.equalsIgnoreCase("client")){
+            Socket socket = new Socket(config.host,config.port);
+            System.out.println("[INFO] listening on " +  config.host + ":" + config.port);
+            return socket;
+        }
+        throw new IllegalArgumentException("[ERROR] invalid mode -> mode: host/client");
+    }
+
+    private void startChat(Config config) throws Exception{
+        try(Socket socket = connect()){
+            System.out.println("[INFO] connected with " +  socket.getRemoteSocketAddress());
+
+            //handshake  
+        }
+    }
+    
+    public static void main(String[] args) throws Exception{
+        System.out.println("lorenzodeluca.it - end to end encrypted chat - default demo ;)");
+
+        // config init
+        Config config = Config.loadFromFile("config.properties");
+
+        // end to end basic socket connection opening
+        
+    }
+
+    private static final class Config{
         static String configFilePath = "config.properties";
         static String mode;
         static String host;
@@ -43,9 +102,27 @@ public class Chat{
                 p.getProperty("privateKeyPass"),
                 p.getProperty("alias")
             );
-        }
+        }    
     }
-    
-    public static void main(String[] args) throws Exception{
+
+    // keys wallet for handshake, loading done from file
+    private static final class KeysStorage{
+        final PrivateKey privateKey;
+        final X509Certificate certificate;
+
+        public KeysStorage(PrivateKey privateKey, X509Certificate certificate) {
+            this.privateKey = privateKey;
+            this.certificate = certificate;
+        }
+
+        static KeysStorage loadFromFile(String path, String storePass, String keyPassword, String alias) throws Exception{
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            try(InputStream is = new FileInputStream(path)){
+                ks.load(is, storePass.toCharArray());
+            }
+            PrivateKey key = (PrivateKey)ks.getKey(alias, keyPassword.toCharArray());
+            Certificate cert = ks.getCertificate(alias);
+            return new KeysStorage(key, (X509Certificate)cert);
+        }
     }
 }
