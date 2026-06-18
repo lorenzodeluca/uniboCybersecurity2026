@@ -75,16 +75,15 @@ public class Chat{
         System.out.println("lorenzodeluca.it - end to end encrypted chat - default demo ;)");
 
         // config init
-        config = Config.loadFromFile("./config.properties");
+        Config configFromFile = Config.loadFromFile("./config.properties");
 
         // end to end basic socket connection opening
-        new Chat(config).startChat(config);
+        new Chat(configFromFile).startChat(configFromFile);
         
     }
 
     // open the socket in host mode or client mode
     private Socket connect() throws IOException{
-        System.out.println(config.mode);
         if(config.mode.equalsIgnoreCase("host")){
             ServerSocket socket = new ServerSocket(config.port);
             System.out.println("[INFO] listening on 0.0.0.0:" +  socket.getLocalPort());
@@ -99,8 +98,8 @@ public class Chat{
 
     private void startChat(Config config) throws Exception{
         try(Socket socket = connect()){
-            System.out.println("[INFO]1 connected with " +  socket.getRemoteSocketAddress());
-            System.out.println("[INFO]2 ---STEP 1 completed: unsafe connection achieved---");
+            System.out.println("[INFO] connected with " +  socket.getRemoteSocketAddress());
+            System.out.println("[INFO] ---STEP 1 completed: unsafe connection achieved---");
 
             //handshake 
             //alias = key alias
@@ -110,9 +109,10 @@ public class Chat{
             KeysStorage keysStorage = KeysStorage.loadFromFile(config.keysPath, config.keysStoragePass,config.privateKeyPass,config.alias);
             
             //---step 2: create a safe channel inside the unsafe connection -> AES/GCM with sequence numbers
-            SecureChannel secureChannel = handshake(socket, keysStorage, config.host.equalsIgnoreCase("host"));
+            SecureChannel secureChannel = handshake(socket, keysStorage, config.mode.equalsIgnoreCase("host"));
         
             //---step 3:start chat inside secure channel
+            System.out.println("[INFO] ---CHAT NOW AVAILABLE---");
             //one thread for receiving and one thread for sending so that both can be done simultaneously
             ExecutorService exec = Executors.newFixedThreadPool(2);
 
@@ -195,7 +195,6 @@ public class Chat{
         CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
         X509Certificate peerCert = (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(incoming.certificateBytes));
         peerCert.checkValidity();
-
         //signature validation 
         Signature verifier = Signature.getInstance(incoming.signatureAlgorithm);
         verifier.initVerify(peerCert);
@@ -203,7 +202,7 @@ public class Chat{
         if(!verifier.verify(incoming.signature)){
             throw new GeneralSecurityException("[ERROR] Peer signature verification failed (STACCA STACCA CI STANNO TRACCIANDO)");
         }
-
+        
         //rebuilding the EC public key from the X509 encoded form
         KeyFactory kf = KeyFactory.getInstance("EC");
         PublicKey peerEphPublic = kf.generatePublic(new X509EncodedKeySpec(incoming.ephemeralPublicKey));
@@ -291,7 +290,7 @@ public class Chat{
                 p.getProperty("mode"),
                 p.getProperty("host", "127.0.0.1"),
                 Integer.parseInt(p.getProperty("port","0")),
-                p.getProperty("keysStoragePath","keystore.p12"),
+                p.getProperty("keysPath","keystore.p12"),
                 p.getProperty("keysStoragePass"),
                 p.getProperty("privateKeyPass"),
                 p.getProperty("alias")
@@ -523,5 +522,4 @@ public class Chat{
             }
             return result;
         }
-
 }
