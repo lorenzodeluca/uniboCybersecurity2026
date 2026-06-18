@@ -86,11 +86,11 @@ public class Chat{
     private Socket connect() throws IOException{
         if(config.mode.equalsIgnoreCase("host")){
             ServerSocket socket = new ServerSocket(config.port);
-            System.out.println("[INFO]1 listening on 0.0.0.0:" +  socket.getLocalPort());
+            System.out.println("[INFO] listening on 0.0.0.0:" +  socket.getLocalPort());
             return socket.accept();
         }else if(config.mode.equalsIgnoreCase("client")){
             Socket socket = new Socket(config.host,config.port);
-            System.out.println("[INFO]2 listening on " +  config.host + ":" + config.port);
+            System.out.println("[INFO] listening on " +  config.host + ":" + config.port);
             return socket;
         }
         throw new IllegalArgumentException("[ERROR] invalid mode -> mode: host/client");

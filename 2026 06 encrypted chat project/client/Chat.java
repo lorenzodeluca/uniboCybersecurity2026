@@ -291,7 +291,7 @@ public class Chat{
                 p.getProperty("mode"),
                 p.getProperty("host", "127.0.0.1"),
                 Integer.parseInt(p.getProperty("port","0")),
-                p.getProperty("keysPath","keystore.p12"),
+                p.getProperty("keysStoragePath","keystore.p12"),
                 p.getProperty("keysStoragePass"),
                 p.getProperty("privateKeyPass"),
                 p.getProperty("alias")
