@@ -65,7 +65,7 @@ import javax.crypto.spec.SecretKeySpec;
     - replay attack prevention: sequence numbers inside AAD and IV(init vector) = seed + counter
 */
 public class Chat{
-    private final Config config;
+    private static Config config;
 
     public Chat(Config c){
         this.config = c;
@@ -75,7 +75,7 @@ public class Chat{
         System.out.println("lorenzodeluca.it - end to end encrypted chat - default demo ;)");
 
         // config init
-        Config config = Config.loadFromFile("config.properties");
+        config = Config.loadFromFile("./config.properties");
 
         // end to end basic socket connection opening
         new Chat(config).startChat(config);
@@ -84,6 +84,7 @@ public class Chat{
 
     // open the socket in host mode or client mode
     private Socket connect() throws IOException{
+        System.out.println(config.mode);
         if(config.mode.equalsIgnoreCase("host")){
             ServerSocket socket = new ServerSocket(config.port);
             System.out.println("[INFO] listening on 0.0.0.0:" +  socket.getLocalPort());
@@ -98,8 +99,8 @@ public class Chat{
 
     private void startChat(Config config) throws Exception{
         try(Socket socket = connect()){
-            System.out.println("[INFO] connected with " +  socket.getRemoteSocketAddress());
-            System.out.println("[INFO] ---STEP 1 completed: unsafe connection achieved---");
+            System.out.println("[INFO]1 connected with " +  socket.getRemoteSocketAddress());
+            System.out.println("[INFO]2 ---STEP 1 completed: unsafe connection achieved---");
 
             //handshake 
             //alias = key alias
