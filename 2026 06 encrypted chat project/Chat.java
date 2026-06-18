@@ -4,6 +4,7 @@ import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -180,6 +181,7 @@ public class Chat{
               this.recvSeed = recvSeed;
         }
 
+        //this method sends a message using AES/GCM + sequence number + UTF-8 charset
         public synchronized void send(String message) throws Exception{
             //preparing ciphertext
             if(closed)return;
@@ -195,6 +197,35 @@ public class Chat{
             out.writeInt(ciphertext.length);
             out.write(ciphertext);
             out.flush();
+        }
+
+        //TODO check the anti replay mechanism
+        public String receive(String message) throws Exception{
+            if(closed)return null; //returns null if channel closed / EOF
+
+            try{
+                long counter = in.readLong();
+                int len = in.readInt();
+                byte[] ciphertext = in.readNBytes(len);
+                recvCounter.updateAndGet(prev -> Math.max(prev, counter)); //TODO check if there is a risk that this line trash valid messages
+                byte[] iv = buildIV(recvSeed, counter);
+                Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+                cipher.init(Cipher.DECRYPT_MODE,recvKey,new GCMParameterSpec(128, iv));
+                cipher.updateAAD(longToBytes(counter));
+                byte[] plaintext = cipher.doFinal(ciphertext);
+                return new String(plaintext, StandardCharsets.UTF_8);
+            }catch(EOFException eof){
+                close();
+                return null;
+            }
+        }
+
+        @Override 
+        public synchronized void close(){
+            if(closed) return;
+            closed = true;
+            try{ in.close(); }catch(IOException ignored){}
+            try{ out.close(); }catch(IOException ignored){}
         }
 
         //helper methods
