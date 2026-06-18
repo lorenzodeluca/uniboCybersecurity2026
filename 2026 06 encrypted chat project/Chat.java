@@ -1,5 +1,3 @@
-package server;
-
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -140,7 +138,7 @@ public class Chat{
                     while (true){
                         msg = secureChannel.receive();
                         if(msg==null) break; //channel closed
-                        else System.out.println("[peer] " + msg);
+                        else System.out.println("["+secureChannel.getPeerName()+"] " + msg);
                     }; 
                 } catch (Exception e) {
                     System.err.println("[ERROR] Receive error: " + e.getMessage());
@@ -201,6 +199,7 @@ public class Chat{
         CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
         X509Certificate peerCert = (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(incoming.certificateBytes));
         peerCert.checkValidity();
+
         //signature validation 
         Signature verifier = Signature.getInstance(incoming.signatureAlgorithm);
         verifier.initVerify(peerCert);
@@ -251,12 +250,15 @@ public class Chat{
             recvIvSeed = serverIvSeed;
         }
 
+        //peer name (getting it from the certificate CN field)
+        String peerCN = peerCert.getSubjectX500Principal().getName("RFC2253").replaceAll(".*CN=([^,]+).*", "$1");
+
         System.out.println("[INFO] Handshake complete.");
         System.out.println("[INFO] Local signature algorithm: " + signatureAlg);
         System.out.println("[INFO] Peer certificate: " + peerCert.getSubjectX500Principal());
         System.out.println("[INFO] Symmetric channel: AES/GCM/NoPadding");
 
-        return new SecureChannel(dataIn, dataOut, sendKey, recvKey, sendIvSeed, recvIvSeed);
+        return new SecureChannel(dataIn, dataOut, sendKey, recvKey, sendIvSeed, recvIvSeed, peerCN);
     }
 
     //im saving all the data needed for this app in different classes because i plan to reuse the code as much as possible for both the client and host
@@ -340,6 +342,7 @@ public class Chat{
         private final AtomicLong sendCounter = new AtomicLong(0);
 
         //channel status
+        private String peerName;
         private volatile boolean closed = false;
 
 
@@ -351,6 +354,11 @@ public class Chat{
               this.recvKey = recvKey;
               this.sendSeed = sendSeed;
               this.recvSeed = recvSeed;
+        }
+
+        SecureChannel(DataInputStream in, DataOutputStream out, SecretKey sendKey, SecretKey recvKey, byte[] sendSeed, byte[] recvSeed, String peerName){
+              this(in, out, sendKey, recvKey, sendSeed, recvSeed);
+              this.peerName = peerName; 
         }
 
         //this method sends a message using AES/GCM + sequence number + UTF-8 charset
@@ -390,6 +398,10 @@ public class Chat{
                 close();
                 return null;
             }
+        }
+
+        public String getPeerName(){
+            return peerName;
         }
 
         @Override 
