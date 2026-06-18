@@ -68,7 +68,16 @@ public class Chat{
         this.config = c;
     }
 
-    
+    public static void main(String[] args) throws Exception{
+        System.out.println("lorenzodeluca.it - end to end encrypted chat - default demo ;)");
+
+        // config init
+        Config config = Config.loadFromFile("config.properties");
+
+        // end to end basic socket connection opening
+        new Chat(config).startChat(config);
+        
+    }
 
     // open the socket in host mode or client mode
     private Socket connect() throws IOException{
@@ -239,17 +248,6 @@ public class Chat{
         System.out.println("[INFO] Symmetric channel: AES/GCM/NoPadding");
 
         return new SecureChannel(dataIn, dataOut, sendKey, recvKey, sendIvSeed, recvIvSeed);
-    }
-    
-    public static void main(String[] args) throws Exception{
-        System.out.println("lorenzodeluca.it - end to end encrypted chat - default demo ;)");
-
-        // config init
-        Config config = Config.loadFromFile("config.properties");
-
-        // end to end basic socket connection opening
-        new Chat(config).startChat(config);
-        
     }
 
     //im saving all the data needed for this app in different classes because i plan to reuse the code as much as possible for both the client and host
