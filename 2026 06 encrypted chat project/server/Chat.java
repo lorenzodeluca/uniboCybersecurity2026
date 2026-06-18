@@ -39,6 +39,7 @@ import java.util.Arrays;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.crypto.Cipher;
@@ -117,7 +118,7 @@ public class Chat{
             ExecutorService exec = Executors.newFixedThreadPool(2);
 
             // Sender thread
-            exec.submit(() -> {
+            Future<?> senderFuture = exec.submit(() -> {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -128,12 +129,12 @@ public class Chat{
                         secureChannel.send(line);
                     }
                 } catch (Exception e) {
-                    System.err.println("Send error: " + e.getMessage());
+                    System.err.println("[ERROR] Send error: " + e.getMessage());
                 }
             });
 
             // Receiver thread
-            exec.submit(() -> {
+            Future<?> receiverFuture = exec.submit(() -> {
                 try {
                     String msg = "";
                     while (true){
@@ -142,11 +143,16 @@ public class Chat{
                         else break;
                     }; 
                 } catch (Exception e) {
-                    System.err.println("Receive error: " + e.getMessage());
+                    System.err.println("[ERROR] Receive error: " + e.getMessage());
                 } finally {
                     secureChannel.close();
                 }
             });
+
+            //waiting for both threads to end
+            senderFuture.get();
+            receiverFuture.get();
+            exec.shutdown();
         }
     }
 
