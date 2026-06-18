@@ -138,9 +138,9 @@ public class Chat{
                 try {
                     String msg = "";
                     while (true){
-                        secureChannel.receive(msg);
-                        if(msg==null) System.out.println("[peer] " + msg);
-                        else break;
+                        msg = secureChannel.receive();
+                        if(msg==null) break; //channel closed
+                        else System.out.println("[peer] " + msg);
                     }; 
                 } catch (Exception e) {
                     System.err.println("[ERROR] Receive error: " + e.getMessage());
@@ -372,7 +372,7 @@ public class Chat{
         }
 
         //TODO check the anti replay mechanism
-        public String receive(String message) throws Exception{
+        public String receive() throws Exception{
             if(closed)return null; //returns null if channel closed / EOF
 
             try{
